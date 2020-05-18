@@ -1,123 +1,98 @@
-#!/usr/bin/env python3
+#--------------------------------------
+#Este script é uma reprodução
+#descarada de um script que achei
+#no reddit. Somente para estudar um
+#pouco das interface web e essas coisas
+#que não são de deus. 
+#--------------------------------------
 
-# ---------------------
-# SCRIPT INFO ---------
-# ---------------------
-# This script downloads X amount of images from a
-# selected subreddit. The subreddit can be specified
-# in the user config section of this srcipt or as 
-# a parameter in the script.
-#
-# Run example: python getWalls.py earthporn
+################################
+#         CONFIGURACAO         #
+################################
 
-
-
-
-# ---------------------
-# USER CONFIG ---------
-# ---------------------
-
-# Where to store downloaded images
-directory = '~/Pictures/Wallpapers/Reddit/'
-# Which subreddit to download from
-subreddit = 'wallpapers'
-# Minimum width of image
+#Diretório ao qual serão salvas as imagens
+directory = '/home/decker/Wallpapers'
+#Subreddit padrão para baixar as imagens
+subreddit = 'HDR'
+#Largura mínima da imagem
 min_width = 1920
-# Minimum height of image
+#Altura mínima da imagem
 min_height = 1080
-# How many posts to get for each request (Max 100)
-jsonLimit = 100
-# Increase this number if the number above (jsonLimit) isn't enough posts
-loops = 5
+#Quantos posts obter por request (Max 100)
+json_limit = 100
+#Numero de iteracoes
+loops = 2
 
+HEADERS = {'User-agent':'getWallpapers'}
 
+################################
+#           IMPORTS            #
+################################
 
-
-
-# ---------------------
-# IMPORTS -------------
-# ---------------------
 import os
 from os.path import expanduser
 import sys
 import requests
 import urllib
 from PIL import ImageFile
+import socket
 
 
-# ---------------------
-# FUNCTIONS -----------
-# ---------------------
+################################
+#           FUNÇÕES            #
+################################
 
-# Returns false on status code error
-def validURL(URL):
-    statusCode = requests.get(URL, headers = {'User-agent':'getWallpapers'}).status_code
-    if statusCode == 404:
-        return False
-    else: return True
+""" Retorna falso em caso de código de erro """
+def valid_URL(URL):
+    return (requests.get(URL,headers=HEADERS).status_code != 404)
 
-# Creates download directory if needed
-def prepareDirectory(directory):
+""" Cria o diretório de destino """
+def prepare_directory(directory):
     if not os.path.exists(directory):
+        print("Path '{}' dosn't exist, creating it!".format(directory))
         os.makedirs(directory)
-        print('Created directory {}'.format(directory))
 
-# Returns false if subreddit doesn't exist
-def verifySubreddit(subreddit):
+""" Verifica se o sub existe """
+def verify_subereddit(subreddit):
     URL = 'https://reddit.com/r/{}.json'.format(subreddit)
-    result= requests.get(URL, headers = {'User-agent':'getWallpapers'}).json()
     try:
-        result['error']
+        requests.get(URL,headers=HEADERS).json()['error']
         return False
     except:
         return True
 
-# Returns list of posts from subreddit as json
-def getPosts(subreddit, loops, after):
-    allPosts = []
-    
+""" Retorna uma lista de posts de um sub como um json """
+def get_posts(subreddit,loops,after):#TODO: talvez retornar somente os validos?
+    all_posts = []
+
     i = 0
-    while i < loops:
-        URL = 'https://reddit.com/r/{}/top/.json?t=all&limit={}&after={}'.format(subreddit, jsonLimit, after)
-        posts = requests.get(URL, headers = {'User-agent':'getWallpapers'}).json()
-        # allPosts.append(posts['data']['children'])
-        for post in posts['data']['children']:
-            allPosts.append(post)
+    for i in range(loops):
+        URL = 'https://reddit.com/r/{}/top/.json?t=all&limit={}&after={}'.format(subreddit, json_limit, after)
+        posts = requests.get(URL,headers=HEADERS).json()
+        all_posts += posts['data']['children']
         after = posts['data']['after']
-        i += 1
-    
-    return allPosts
+    return all_posts
+""" Verifica se o URL é uma imagem """
+def is_image(URL:str):
+    return URL.endswith(('.png','.jpg','.jpeg'))
 
-# Returns false if URL is not an image
-def isImg(URL):
-    if URL.endswith(('.png', '.jpeg', '.jpg')):
-        return True
-    else: return False
-
-# Returns false if image from URL is not HD (Specified by min-/max_width)
-def isHD(URL, min_widht, min_height):
+def is_HD(URL,min_width,min_height):
     file = urllib.request.urlopen(URL)
-    size = file.headers.get("content-length")
+    size = file.headers.get("content-lenght")
     if size: size = int(size)
     p = ImageFile.Parser()
-    while 1:
+    while(True):
         data = file.read(1024)
         if not data:
-            break
+            file.close()
+            return False
         p.feed(data)
         if p.image:
-            # return p.image.size
-            if p.image.size[0] >= min_width and p.image.size[1] >= min_height:
-                return True
-                break
-            else:
-                return False
-                break
-    file.close()
-    return False
+            #file.close() #Maybe this wont work
+            return (p.image.size[0] >= min_width and p.image.size[1] >= min_height)
 
-# Returns false if image from URL is not landscape
-def isLandscape(URL):
+""" Checa se a imagem é paisagem """
+def is_landscape(URL):
     file = urllib.request.urlopen(URL)
     size = file.headers.get("content-length")
     if size: size = int(size)
@@ -138,30 +113,24 @@ def isLandscape(URL):
     file.close()
     return False
 
-# Returns true if image from URL is already downloaded
-def alreadyDownloaded(URL):
-    imgName = os.path.basename(URL)
-    localFilePath = os.path.join(directory, imgName)
-    if(os.path.isfile(localFilePath)):
-        return True
-    else: return False
+""" Checa se a imagem já foi baixada """
+def already_dowloaded(URL):
+    img_name = os.path.basename(URL)
+    local_file_path = os.path.join(directory,img_name)
+    return os.path.isfile(local_file_path)
 
-# Returns false if image from post/URL is not from reddit or imgur domain
-def knownURL(post):
-    if post.lower().startswith('https://i.redd.it/') or post.lower().startswith('https://i.imgur.com/'):
-        return True
-    else: return False
+""" Checa se a imagem vem do imgur ou reddit """
+def known_URL(post):
+    return post.lower().startswith('https://i.redd.it/') or post.lower().startswith('https://i.imgur.com/') or post.lower().startswith('http://i.imgur.com/') or post.lower().startswith('http://imgur.com')
 
-# Returns true if image from post/URL is stored locally
-def storeImg(post):
-    if urllib.request.urlretrieve(post, os.path.join(directory, os.path.basename(post))):
-        return True
-    else: return False
+""" Verifica se a imagem da URL etá armazenada localmente """
+def store_img(post):
+    return urllib.request.urlretrieve(post, os.path.join(directory, os.path.basename(post)))
 
 
-# ---------------------
-# COLORS --------------
-# ---------------------
+################################
+#            CORES             #
+################################
 DARK = '\033[1;30m'
 RED = '\033[1;31m'
 GREEN = '\033[1;32m'
@@ -170,104 +139,94 @@ PURPLE = '\033[1;35m'
 NC = '\033[0m'
 
 
-# ---------------------
-# START SCRIPT --------
-# ---------------------
+################################
+#             MAIN             #
+################################
 
-# Check if subreddit name is specified as parameter
-try:
-    subreddit = sys.argv[1]
-except:
-    pass
-
-# Creates directory
+#Cria o diretório
 directory = expanduser(directory)
-directory = os.path.join(directory, subreddit)
-prepareDirectory(directory)
+prepare_directory(directory)
 
-# Exits if invalid subreddit name
-if not verifySubreddit(subreddit):
-    print('r/{} is not a valid subreddit'.format(subreddit))
+#Verifica se é um sub válido
+if not verify_subereddit(subreddit):
+    print ("Você tem certeza que {} é um subreddit?".format(subreddit))
     sys.exit()
 
-# For reddit pagination (Leave empty)
+#Começa na primeira página
 after = ''
 
-# Stores posts from function
-posts = getPosts(subreddit, loops, after)
+#Armazena os posts
+posts = get_posts(subreddit,loops,after)
 
-# For adding index numbers to loop
+#Numero da operacao
 index = 1
 
-# Counting amount of images downloaded
-downloadCount = 0
+#Numero de imagens baixadas
+downdoaded = 0
 
-# Print starting message
+#Mensagem inicial
 print()
 print(DARK + '--------------------------------------------' + NC)
 print(PURPLE + 'Downloading to      : ' + ORANGE + directory + NC)
 print(PURPLE + 'From r/             : ' + ORANGE + subreddit + NC)
 print(PURPLE + 'Minimum resolution  : ' + ORANGE + str(min_width) + 'x' + str(min_height) + NC)
-print(PURPLE + 'Maximum downloads   : ' + ORANGE + str(jsonLimit*loops) + NC)
+print(PURPLE + 'Maximum downloads   : ' + ORANGE + str(json_limit*loops) + NC)
 print(DARK + '--------------------------------------------' + NC)
 print()
 
-
-# Loops through all posts
+#Percorre todos os posts
 for post in posts:
-    
-    # Shortening variable name
-    post = post['data']['url']
+    try:
+        #Pegando a URL
+        URL = post['data']['url']
+        title = post['data']['title']
 
-    # Skip post on 404 error
-    if not validURL(post):
-        print(RED + '{}) 404 error'.format(index) + NC)
-        index += 1
-        continue
-
-    # Skip unknown URLs
-    elif not knownURL(post):
-        print(RED + '{}) Skipping unknown URL'.format(index) + NC)
-        index += 1
-        continue
-
-    # Skip post if not image
-    elif not isImg(post):
-        print(RED + '{}) No image in this post'.format(index) + NC + NC + NC + NC)
-        index += 1
-        continue
-
-    # Skip post if not landscape
-    elif not isLandscape(post):
-        print(RED + '{}) Skipping portrait image'.format(index) + NC)
-        index += 1
-        continue
-    
-    # Skip post if not HD
-    elif not isHD(post, min_width, min_height):
-        print(RED + '{}) Skipping low resolution image'.format(index) + NC)
-        index += 1
-        continue
-
-    # Skip already downloaded images
-    elif alreadyDownloaded(post):
-        print(RED + '{}) Skipping already downloaded image'.format(index) + NC)
-        index += 1
-        continue
-
-    # All checks cleared, download image
-    else:
-        # Store image from post locally
-        if storeImg(post):
-            print(GREEN + '{}) Downloaded {}'.format(index, os.path.basename(post)) + NC)
-            downloadCount += 1
+        #Ignora caso 404
+        if not valid_URL(URL):
+            print(RED + '{}) 404 error'.format(index) + NC)
+            print(RED + '{})'.format(title) + NC + '\n')
             index += 1
-        # For unexpected errors
+            continue
+        #Ignora url desconhecida
+        if not known_URL(URL):
+            print(RED + '{}) Skipping unknown URL'.format(index) + NC)
+            print(RED + '{})'.format(URL) + NC)
+            print(RED + '{})'.format(title) + NC + '\n')
+            index += 1
+            continue
+        #Ignora retrato
+        if not is_landscape(URL):
+            print(RED + '{}) Skipping portrait image'.format(index) + NC)
+            print(RED + '{})'.format(title) + NC + '\n')
+            index += 1
+            continue
+        #Ignora imagens pequenas
+        if not is_HD(URL,min_width,min_height):
+            print(RED + '{}) Skipping low resolution image'.format(index) + NC)
+            print(RED + '{})'.format(title) + NC + '\n')
+            index += 1
+            continue
+        #Ignora se já foi baixada
+        if already_dowloaded(URL):
+            print(RED + '{}) Skipping already downloaded image'.format(index) + NC)
+            print(RED + '{})'.format(title) + NC + '\n')
+            index += 1
+            continue
+        #Baixa uma imagem nova válida
+        if store_img(URL):
+            print(GREEN + '{}) Downloaded {}'.format(index, os.path.basename(URL)) + NC)
+            print(GREEN + '{})'.format(title) + NC + '\n')
+            downdoaded += 1
+            index += 1
         else:
-            print(RED + 'Unexcepted error' + NC)
+            print(RED + 'Unexcepted error' + NC + "\n")
             index += 1
+    except requests.exceptions.ConnectionError:
+        print(RED + 'Unexcepted error' + NC + "\n")
+    
+#Mostra estatísticas da sessão
+print("{} imagens do {} baixadas na pasta {}".format(downdoaded,subreddit,directory))    
+    
 
 
-# Print info when loop is finished
-print()
-print(ORANGE + '{}'.format(downloadCount) + PURPLE + ' images was downloaded to ' + ORANGE + '{}'.format(directory) + NC)
+

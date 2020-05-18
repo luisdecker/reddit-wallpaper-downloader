@@ -219,10 +219,11 @@ for post in posts:
             downdoaded += 1
             index += 1
         else:
-            print(RED + 'Unexcepted error' + NC + "\n")
+            print(RED + '{}) Unexcepted error'.format(index) + NC + "\n")
             index += 1
     except requests.exceptions.ConnectionError:
-        print(RED + 'Unexcepted error' + NC + "\n")
+        print(RED + '{}) Address Unreachable'.format(index) + NC + "\n")
+        index += 1
     
 #Mostra estatísticas da sessão
 print("{} imagens do {} baixadas na pasta {}".format(downdoaded,subreddit,directory))    
